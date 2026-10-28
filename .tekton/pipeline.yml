@@ -1,0 +1,102 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: counter-service-pipeline
+spec:
+  description: Lint, test, build, and deploy the Flask counter service.
+  params:
+    - name: repo-url
+      type: string
+      description: Git repository URL to clone.
+      default: https://github.com/pb1803/ci-cd-final-project.git
+    - name: branch
+      type: string
+      description: Git branch to build.
+      default: main
+    - name: image-ref
+      type: string
+      description: Fully qualified destination image reference.
+  workspaces:
+    - name: pipeline-workspace
+  tasks:
+    - name: cleanup
+      taskRef:
+        name: cleanup
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+
+    - name: git-clone
+      taskRef:
+        name: git-clone
+      params:
+        - name: url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.branch)
+      workspaces:
+        - name: output
+          workspace: pipeline-workspace
+      runAfter:
+        - cleanup
+
+    - name: flake8
+      taskRef:
+        name: flake8
+      params:
+        - name: image
+          value: python:3.9-slim
+        - name: args
+          value:
+            - --count
+            - --max-complexity=10
+            - --max-line-length=127
+            - --statistics
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+      runAfter:
+        - git-clone
+
+    - name: nose
+      taskRef:
+        name: nose
+      params:
+        - name: args
+          value: -v --with-spec --spec-color
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+      runAfter:
+        - flake8
+
+    - name: buildah
+      taskRef:
+        name: buildah
+        kind: ClusterTask
+      params:
+        - name: IMAGE
+          value: $(params.image-ref)
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+      runAfter:
+        - nose
+
+    - name: openshift-client
+      taskRef:
+        name: openshift-client
+      params:
+        - name: VERSION
+          value: "4.15"
+        - name: SCRIPT
+          value: |
+            set -eu
+            oc apply -f k8s/service.yaml
+            sed 's|IMAGE_PLACEHOLDER|$(params.image-ref)|g' k8s/deployment.yaml | oc apply -f -
+            oc rollout status deployment/counter-service --timeout=180s
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+      runAfter:
+        - buildah

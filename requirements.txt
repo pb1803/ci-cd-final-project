@@ -1,0 +1,17 @@
+# Werkzeug must remain compatible with the course Flask version.
+Werkzeug==2.1.2
+
+# Runtime dependencies
+Flask==2.1.2
+python-dotenv==0.20.0
+gunicorn==20.1.0
+honcho==1.1.0
+
+# Code quality
+flake8==4.0.1
+importlib-metadata==4.13.0
+
+# Testing dependencies, including the Nose spec reporter flags used by the course.
+nose==1.3.7
+pinocchio==0.4.3
+coverage==6.3.2

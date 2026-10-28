@@ -1,0 +1,64 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: cleanup
+spec:
+  description: Safely remove existing files from the shared pipeline workspace.
+  workspaces:
+    - name: source
+  steps:
+    - name: remove-workspace-content
+      image: alpine:3.19
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/bin/sh
+        set -eu
+        source_path="$(workspaces.source.path)"
+        if [ -z "$source_path" ] || [ "$source_path" = "/" ]; then
+          echo "Refusing to clean an unsafe workspace path" >&2
+          exit 1
+        fi
+        find "$source_path" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: test
+spec:
+  description: Install project dependencies, lint the source, and run the Nose suite.
+  workspaces:
+    - name: source
+  steps:
+    - name: lint-and-test
+      image: python:3.9-slim
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/bin/sh
+        set -eu
+        python -m pip install --upgrade pip wheel
+        python -m pip install -r requirements.txt
+        flake8 --count --max-complexity=10 --max-line-length=127 --statistics
+        nosetests -v --with-spec --spec-color
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: openshift-client
+spec:
+  description: Apply the checked-out application manifests using the OpenShift CLI.
+  params:
+    - name: SCRIPT
+      description: OpenShift CLI script to execute.
+      type: string
+      default: oc version
+    - name: VERSION
+      description: OpenShift CLI image version.
+      type: string
+      default: "4.15"
+  workspaces:
+    - name: source
+  steps:
+    - name: oc
+      image: quay.io/openshift/origin-cli:$(params.VERSION)
+      workingDir: $(workspaces.source.path)
+      script: "$(params.SCRIPT)"
